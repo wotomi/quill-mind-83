@@ -277,13 +277,17 @@ export const EditorPanel = ({ selectedFile, content, onContentChange }: EditorPa
           )}
         </TabsContent>
 
-        <TabsContent value="preview" className="flex-1 m-0">
-          <ScrollArea className="h-full">
-            <div className="p-6 prose prose-invert max-w-none">
+        <TabsContent value="preview" className="flex-1 m-0 overflow-hidden">
+          <ScrollArea className="h-full w-full">
+            <div className="p-6 prose prose-sm prose-invert max-w-none overflow-hidden">
               {/* Mock markdown preview */}
-              <h1>Preview of {selectedFile}</h1>
-              <p>This would show the rendered markdown content...</p>
-              <pre className="bg-muted p-4 rounded">{content}</pre>
+              <h1 className="text-xl font-bold mb-4">Preview of {selectedFile}</h1>
+              <div className="bg-muted/50 border border-border rounded-lg p-4">
+                <p className="text-muted-foreground mb-4">Rendered content preview:</p>
+                <div className="whitespace-pre-wrap break-words overflow-hidden text-sm">
+                  {content || "No content to preview..."}
+                </div>
+              </div>
             </div>
           </ScrollArea>
         </TabsContent>
