@@ -1,367 +1,211 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Save, 
   Eye, 
   Code, 
-  GitCompare, 
-  Check, 
-  X,
+  Users,
   FileText,
   Download,
   Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiService, DiffResponse } from "@/services/api";
+import { FileData, Collaborator } from "@/types/collaboration";
 
 interface EditorPanelProps {
-  selectedFile: string | null;
+  selectedFile: FileData | null;
   content: string;
   onContentChange: (content: string) => void;
+  onCursorChange?: (position: number, selectionStart: number, selectionEnd: number) => void;
+  collaborators?: Collaborator[];
 }
 
-export const EditorPanel = ({ selectedFile, content, onContentChange }: EditorPanelProps) => {
+export const EditorPanel = ({ 
+  selectedFile, 
+  content, 
+  onContentChange, 
+  onCursorChange,
+  collaborators = []
+}: EditorPanelProps) => {
   const [activeTab, setActiveTab] = useState("edit");
   const [hasChanges, setHasChanges] = useState(false);
-  const [diff, setDiff] = useState<DiffResponse | null>(null);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
-  // Load file content when selected file changes
+  // Track changes
   useEffect(() => {
     if (selectedFile) {
-      loadFileContent();
+      setHasChanges(content !== selectedFile.content);
     }
-  }, [selectedFile]);
+  }, [content, selectedFile]);
 
-  // Load diff when switching to diff tab
-  useEffect(() => {
-    if (activeTab === "diff" && selectedFile) {
-      loadDiff();
-    }
-  }, [activeTab, selectedFile]);
-
-  const loadFileContent = async () => {
-    if (!selectedFile) return;
-    
-    try {
-      setLoading(true);
-      const response = await apiService.getFileContent(selectedFile);
-      onContentChange(response.content);
-      setHasChanges(false);
-    } catch (error) {
-      toast({
-        title: "Error loading file",
-        description: error instanceof Error ? error.message : "Failed to load file",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadDiff = async () => {
-    if (!selectedFile) return;
-    
-    try {
-      const diffResponse = await apiService.getFileDiff(selectedFile);
-      setDiff(diffResponse);
-    } catch (error) {
-      toast({
-        title: "Error loading diff",
-        description: error instanceof Error ? error.message : "Failed to load diff",
-        variant: "destructive",
-      });
+  // Handle cursor position changes
+  const handleSelectionChange = () => {
+    if (textareaRef.current && onCursorChange) {
+      const textarea = textareaRef.current;
+      onCursorChange(
+        textarea.selectionStart,
+        textarea.selectionStart,
+        textarea.selectionEnd
+      );
     }
   };
 
   const handleContentChange = (newContent: string) => {
     onContentChange(newContent);
-    setHasChanges(true);
   };
 
-  const handleSave = async () => {
-    if (!selectedFile) return;
-    
-    try {
-      setSaving(true);
-      await apiService.updateFileContent(selectedFile, content);
-      setHasChanges(false);
-      toast({
-        title: "File saved",
-        description: `${selectedFile} has been saved successfully`,
-      });
-    } catch (error) {
-      toast({
-        title: "Save failed",
-        description: error instanceof Error ? error.message : "Failed to save file",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAcceptChanges = async () => {
-    if (!selectedFile) return;
-    
-    try {
-      await apiService.acceptChanges(selectedFile);
-      toast({
-        title: "Changes accepted",
-        description: "All changes have been accepted",
-      });
-      await loadDiff(); // Refresh diff
-    } catch (error) {
-      toast({
-        title: "Error accepting changes",
-        description: error instanceof Error ? error.message : "Failed to accept changes",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleRejectChanges = async () => {
-    if (!selectedFile) return;
-    
-    try {
-      await apiService.rejectChanges(selectedFile);
-      toast({
-        title: "Changes rejected",
-        description: "All changes have been rejected",
-      });
-      await loadDiff(); // Refresh diff
-      await loadFileContent(); // Reload content
-    } catch (error) {
-      toast({
-        title: "Error rejecting changes",
-        description: error instanceof Error ? error.message : "Failed to reject changes",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleExport = async (format: 'pdf' | 'html' | 'docx' | 'txt') => {
-    if (!selectedFile) return;
-    
-    try {
-      setExporting(true);
-      const response = await apiService.exportFile({
-        filename: selectedFile,
-        format,
-        options: {
-          include_metadata: true,
-          styling: 'professional'
+  const renderMarkdownPreview = (text: string) => {
+    // Simple markdown rendering - you could use a library like react-markdown for more features
+    return text
+      .split('\n')
+      .map((line, index) => {
+        if (line.startsWith('# ')) {
+          return <h1 key={index} className="text-2xl font-bold mb-2">{line.slice(2)}</h1>;
         }
+        if (line.startsWith('## ')) {
+          return <h2 key={index} className="text-xl font-semibold mb-2">{line.slice(3)}</h2>;
+        }
+        if (line.startsWith('### ')) {
+          return <h3 key={index} className="text-lg font-medium mb-2">{line.slice(4)}</h3>;
+        }
+        if (line.startsWith('- ')) {
+          return <li key={index} className="ml-4">{line.slice(2)}</li>;
+        }
+        if (line.trim() === '') {
+          return <br key={index} />;
+        }
+        return <p key={index} className="mb-2">{line}</p>;
       });
-      
-      // In a real implementation, you might want to trigger a download
-      window.open(response.download_url, '_blank');
-      
-      toast({
-        title: "Export successful",
-        description: `${selectedFile} exported as ${format.toUpperCase()}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Export failed",
-        description: error instanceof Error ? error.message : "Failed to export file",
-        variant: "destructive",
-      });
-    } finally {
-      setExporting(false);
-    }
   };
 
-  // Parse diff lines for better display
-  const parsedDiff = diff?.diff?.map((line, index) => {
-    if (line.startsWith('@@')) {
-      return { type: 'header', content: line, lineNumber: null };
-    } else if (line.startsWith('+')) {
-      return { type: 'added', content: line.substring(1), lineNumber: null };
-    } else if (line.startsWith('-')) {
-      return { type: 'removed', content: line.substring(1), lineNumber: null };
-    } else {
-      return { type: 'context', content: line, lineNumber: null };
-    }
-  }) || [];
+  const renderCollaboratorCursors = () => {
+    if (!textareaRef.current || collaborators.length === 0) return null;
+
+    return collaborators.map((collaborator, index) => (
+      <Badge
+        key={collaborator.id}
+        variant="secondary"
+        className="absolute top-2 right-2"
+        style={{
+          marginTop: `${index * 24}px`,
+          backgroundColor: `hsl(${(collaborator.id.charCodeAt(0) * 137.5) % 360}, 70%, 50%)`,
+          color: 'white'
+        }}
+      >
+        {collaborator.display_name}
+      </Badge>
+    ));
+  };
 
   if (!selectedFile) {
     return (
-      <div className="h-full bg-editor border-r border-panel-border flex items-center justify-center">
-        <div className="text-center">
-          <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-foreground mb-2">No File Selected</h3>
-          <p className="text-muted-foreground">Choose a file from the panel to start editing</p>
+      <div className="h-full flex items-center justify-center bg-background">
+        <div className="text-center text-muted-foreground">
+          <FileText className="h-16 w-16 mx-auto mb-4 opacity-30" />
+          <h3 className="text-lg font-medium mb-2">No File Selected</h3>
+          <p className="text-sm">
+            Select a file from the file panel to start editing
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full bg-editor border-r border-panel-border flex flex-col">
+    <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="h-12 border-b border-panel-border bg-panel-header flex items-center justify-between px-4">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-foreground">{selectedFile}</span>
-            {hasChanges && (
-              <div className="w-2 h-2 rounded-full bg-primary" />
-            )}
-          </div>
-        </div>
-
+      <div className="flex items-center justify-between p-3 border-b border-border">
         <div className="flex items-center gap-2">
-          <Button 
-            size="sm" 
-            variant="ghost"
-            onClick={handleSave}
-            disabled={!hasChanges || saving || loading}
-            className="text-xs"
-          >
-            {saving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
-            Save
-          </Button>
+          <FileText className="h-4 w-4" />
+          <span className="font-medium text-sm">{selectedFile.filename}</span>
+          {hasChanges && (
+            <Badge variant="secondary" className="text-xs">
+              Modified
+            </Badge>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {collaborators.length > 0 && (
+            <div className="flex items-center gap-1">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">
+                {collaborators.length}
+              </span>
+            </div>
+          )}
           
-          <div className="flex gap-1">
-            <Button 
-              size="sm" 
-              variant="ghost"
-              onClick={() => handleExport('pdf')}
-              disabled={exporting || !selectedFile}
-              className="text-xs"
-            >
-              {exporting ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-              Export
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!hasChanges || saving}
+            onClick={() => {
+              setSaving(true);
+              // Content is auto-saved via the collaboration hook
+              setTimeout(() => setSaving(false), 1000);
+            }}
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {saving ? "Saving..." : "Save"}
+          </Button>
         </div>
       </div>
 
       {/* Editor Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <TabsList className="h-10 bg-panel-header border-b border-panel-border rounded-none justify-start px-4">
-          <TabsTrigger value="edit" className="data-[state=active]:bg-active-tab/20 data-[state=active]:text-primary">
-            <Code className="w-3 h-3 mr-1" />
+        <TabsList className="grid w-full grid-cols-2 mx-3 mt-3">
+          <TabsTrigger value="edit" className="flex items-center gap-2">
+            <Code className="h-4 w-4" />
             Edit
           </TabsTrigger>
-          <TabsTrigger value="preview" className="data-[state=active]:bg-active-tab/20 data-[state=active]:text-primary">
-            <Eye className="w-3 h-3 mr-1" />
+          <TabsTrigger value="preview" className="flex items-center gap-2">
+            <Eye className="h-4 w-4" />
             Preview
-          </TabsTrigger>
-          <TabsTrigger value="diff" className="data-[state=active]:bg-active-tab/20 data-[state=active]:text-primary">
-            <GitCompare className="w-3 h-3 mr-1" />
-            Diff
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="edit" className="flex-1 m-0">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
+        <TabsContent value="edit" className="flex-1 p-3 pt-0">
+          <div className="relative h-full">
             <Textarea
+              ref={textareaRef}
               value={content}
               onChange={(e) => handleContentChange(e.target.value)}
-              placeholder="Start writing your markdown..."
-              className="h-full resize-none border-0 rounded-none bg-transparent font-mono text-sm leading-relaxed focus-visible:ring-0"
+              onSelect={handleSelectionChange}
+              onKeyUp={handleSelectionChange}
+              onClick={handleSelectionChange}
+              placeholder="Start typing..."
+              className="h-full resize-none font-mono text-sm leading-6"
+              style={{ minHeight: '100%' }}
             />
-          )}
+            {renderCollaboratorCursors()}
+          </div>
         </TabsContent>
 
-        <TabsContent value="preview" className="flex-1 m-0 overflow-hidden">
-          <ScrollArea className="h-full w-full">
-            <div className="p-6 prose prose-sm prose-invert max-w-none overflow-hidden">
-              {/* Mock markdown preview */}
-              <h1 className="text-xl font-bold mb-4">Preview of {selectedFile}</h1>
-              <div className="bg-muted/50 border border-border rounded-lg p-4">
-                <p className="text-muted-foreground mb-4">Rendered content preview:</p>
-                <div className="whitespace-pre-wrap break-words overflow-hidden text-sm">
-                  {content || "No content to preview..."}
+        <TabsContent value="preview" className="flex-1 p-3 pt-0">
+          <ScrollArea className="h-full">
+            <div className="prose prose-sm max-w-none">
+              {content ? (
+                <div className="space-y-2">
+                  {renderMarkdownPreview(content)}
                 </div>
-              </div>
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  <p>No content to preview</p>
+                </div>
+              )}
             </div>
           </ScrollArea>
-        </TabsContent>
-
-        <TabsContent value="diff" className="flex-1 m-0">
-          <div className="h-full flex flex-col">
-            <div className="p-4 border-b border-panel-border bg-panel-header">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-medium">Changes</h3>
-                  {diff && (
-                    <span className="text-xs text-muted-foreground">
-                      {diff.changes} change{diff.changes !== 1 ? 's' : ''}
-                    </span>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={handleAcceptChanges}
-                    disabled={!diff?.has_changes}
-                    className="h-7 text-xs bg-diff-added/20 border-diff-added/50 hover:bg-diff-added/30"
-                  >
-                    <Check className="w-3 h-3 mr-1" />
-                    Accept All
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={handleRejectChanges}
-                    disabled={!diff?.has_changes}
-                    className="h-7 text-xs bg-diff-removed/20 border-diff-removed/50 hover:bg-diff-removed/30"
-                  >
-                    <X className="w-3 h-3 mr-1" />
-                    Reject All
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <ScrollArea className="flex-1">
-              <div className="p-4">
-                {!diff ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : !diff.has_changes ? (
-                  <div className="text-center py-8 text-muted-foreground text-sm">
-                    No changes detected
-                  </div>
-                ) : (
-                  <div className="font-mono text-sm space-y-1">
-                    {parsedDiff.map((line, index) => (
-                      <div 
-                        key={index}
-                        className={cn(
-                          "p-2 rounded",
-                          line.type === "header" && "bg-muted/50 text-muted-foreground font-semibold",
-                          line.type === "added" && "bg-diff-added/10 text-diff-added",
-                          line.type === "removed" && "bg-diff-removed/10 text-diff-removed",
-                          line.type === "context" && "text-foreground"
-                        )}
-                      >
-                        {line.type === "added" && "+ "}
-                        {line.type === "removed" && "- "}
-                        {line.content}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
         </TabsContent>
       </Tabs>
     </div>
